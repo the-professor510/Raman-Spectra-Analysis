@@ -168,11 +168,12 @@ def PLSR():
             data2 = pd.read_csv(file2, header = 0, index_col =0)
         except:
             print("Please ensure that you entered the file path properly")
-            exit()
+            return
 
         #Ensure that the training data and prediction data have the same number of independent variables
         if (len(data.axes[1])-num_depen_var != len(data2.axes[1])):
             print("Please ensure that the number of independent variables in the training and predicting file are the same")
+            return
 
         #Get the data
         X_colnames2 = data2.columns
