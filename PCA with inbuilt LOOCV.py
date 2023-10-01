@@ -30,6 +30,32 @@ def distance(start, end):
 
     return np.sqrt(distance)
 
+#returns the score when considering all the Principal components
+#average, std, and fitted are an array of values of the same length
+def scoreAllPC(average, std, fitted):
+
+    score = 0
+
+    for i in range(len(fitted)):
+        score += ((fitted[i]-average[i])**2)
+
+    stdProduct = np.prod(std)
+
+    score = (-1)*score/(2*np.sqrt(stdProduct))
+    score = np.exp(score)
+
+    return score
+
+#returns an evaluation score when considering just on principal component
+#is passed only one value for average, std, and fitted
+def scoreOnePC(average, std, fitted):
+    
+    score = ((fitted-average)**2)
+    score = (-1)*score/(2*(std**2))
+    score = np.exp(score)
+
+    return score
+
 #gets a file from the user on which PAC with LOOCV will be performed
 def PCAWithLOOCV():
     #Import a CSV with formating of 
@@ -73,9 +99,11 @@ def PCAWithLOOCV():
             sampleNames.append(data.axes[0][i])
             numberSamples.append(0)
 
+    columnName = sampleNames.copy()
+    columnName.append("Unknown")
 
     # create a data frame to store the loocv
-    df = pd.DataFrame(columns = sampleNames,
+    df = pd.DataFrame(columns = columnName,
                     index = sampleNames)
     df = df.fillna(0)
 
@@ -112,26 +140,52 @@ def PCAWithLOOCV():
     #get the number of components from the user
     numComponents= int(input("Enter the number of Prinicpal Components you would like to use: "))
 
+    #get the number of components from the user
+    UncertaintyScore = float(input("Enter the minimum score you would like to have to not be predicted as unknown: "))
+
     #loops through all spectra to perfrom PCA with LOOCV
     for i in range(len(data)):
+
+        #figures out which sample we are missing
+        y = -1
+        for k in range(len(sampleNames)):
+            if sampleNames[k] == data.axes[0][i]:
+                y = k
+                #numberSamples[k] += 1
+                break
         
         #get a new PCA missing the ith spectra in the given data
         createdList =createList(i,0,len(data)-1)
         X_For_PCA = X[createdList,:]
-
+        
+        #create the PCA
         pca = PCA(n_components=numComponents).fit(X_For_PCA)
 
+        #get the Principal components for the training data
         X_Transformed = pca.transform(X_For_PCA)
+        dtPCA = pd.DataFrame(X_Transformed,index = data.axes[0][createdList])
 
-        #find the average position of each smaple in the PC space
+        #store Prinicple Components of the training data in a csv
+        trainingPath = os.path.join(path, "TrainingPCs")
+        try:
+            os.mkdir(trainingPath)
+        except:
+            #Do Notihng
+            doNothing = 0
+        fileName = "TrainingPrincipalComponentsMissing" + str(sampleNames[y]) + "(" + str(numberSamples[y]) + ").csv"
+        filePath = os.path.join(trainingPath,fileName)
+        dtPCA.to_csv(filePath)
+
+        #find the average position and standard deviation of each smaple in the PC space
         average = []
+        std = []
         for j in range(len(sampleNames)):
             #find index of all scores relating to first name
             index = []
 
-            for x in createdList:
-                if sampleNames[j] == data.axes[0][x]:
-                    index.append(x)
+            for k in createdList:
+                if sampleNames[j] == data.axes[0][k]:
+                    index.append(k)
 
             total = []
             subtraction = 0
@@ -140,31 +194,115 @@ def PCAWithLOOCV():
                 subtraction = 1
 
             total = X_Transformed[index[0] - subtraction]
-            
-            for x in index[1:]:
-                if (x >= i):
-                    subtraction = 1
-                for y in range(numComponents):
-                    total[y] += X_Transformed[x-subtraction,y]
 
-            for y in range(numComponents):
-                total[y] = total[y]/len(index)
+            #get list to find std of
+            listOfPC = X_Transformed[index[0] - subtraction]
+            
+            for k in index[1:]:
+                if (k >= i):
+                    subtraction = 1
+
+                listOfPC = np.column_stack((listOfPC, X_Transformed[k-subtraction]))
+
+                for l in range(numComponents):
+                    total[l] += X_Transformed[k-subtraction,l]
+
+
+            #calculate average
+            for k in range(numComponents):
+                total[k] = total[k]/len(index)
 
             average.append(total.copy())
+
+            #calculate std
+            std.append(np.std(listOfPC, axis =1))
         
+        #store average PC values and standard deviations
+        dfAverages = pd.DataFrame(average,index = sampleNames)
+        dfSTD = pd.DataFrame(std, index = sampleNames)
+
+        averagePath = os.path.join(path, "AvgOfPCs")
+        stdPath = os.path.join(path, "STDofPCs")
+
+        try:
+            os.mkdir(averagePath)
+        except:
+            #Do Notihng
+            doNothing = 0
+        try:
+            os.mkdir(stdPath)
+        except:
+            #Do Notihng
+            doNothing = 0
+
+        #store the averages of the Principle components of the training data
+        fileName = "AveragePCMissing" + str(sampleNames[y]) + "(" + str(numberSamples[y]) +").csv"
+        filePath = os.path.join(averagePath,fileName)
+        dfAverages.to_csv(filePath)
+        #store the standard deviations of the principal components of the training data
+        fileName = "STDPCMissing" + str(sampleNames[y]) + "(" + str(numberSamples[y]) +").csv"
+        filePath = os.path.join(stdPath,fileName)
+        dfSTD.to_csv(filePath)
+
+
+
         #fit the missing spectra to the PC space
         TransformMissing = pca.transform(X[i,:].reshape(1, -1))
-        
+        dfPCA = pd.DataFrame(TransformMissing,index = [sampleNames[y]])
 
-        #find the minimum distance between the missing spectra and the average position of
-        # samples in the PC space and add it to the score dataframe
-        minDistance = distance(average[0], TransformMissing[0])
+        fittingPath = os.path.join(path, "FittingPCs")
+        try:
+            os.mkdir(fittingPath)
+        except:
+            #Do Notihng
+            doNothing = 0
+
+        #store Prinicple Components of the fitted data in a csv
+        fileName = "FittedPrincipalComponentsMissing" + str(sampleNames[y]) + "(" + str(numberSamples[y]) + ").csv"
+        filePath = os.path.join(fittingPath,fileName)
+        dfPCA.to_csv(filePath)
+
+
+        #find the probability from considering all axes
+        maxScore = scoreAllPC(average[0], std[0], TransformMissing[0])
+        scores = np.array(maxScore)
+        scoreColNames = ["All PC Score"]
         index = 0
         for j in range(1,len(average)):
-            if minDistance > distance(average[j],TransformMissing[0]):
-                minDistance = distance(average[j],TransformMissing[0])
+            scores = np.append(scores,scoreAllPC(average[j], std[j],TransformMissing[0]))
+            if maxScore < scores[j]:
+                maxScore = scores[j]
                 index = j
+        #if the maxscore is outside of the chosen certainty range then it will be set to be unknown
+        if maxScore < UncertaintyScore:
+            index = len(sampleNames)
+        
 
+        #find the probability scores when considering each axis individually
+        for j in range(numComponents):
+            #calculate the socres due to the jth principle component
+            scorePC = np.array(scoreOnePC(average[0][j], std[0][j], TransformMissing[0][j]))
+            for k in range(1,len(average)):
+                scorePC = np.append(scorePC, scoreOnePC(average[k][j], std[k][j], TransformMissing[0][j]))
+
+            scores = np.column_stack((scores, scorePC))
+            scoreColNames += [("PC" + str(j))]
+
+        dfscores = pd.DataFrame(scores, columns = scoreColNames, index = sampleNames)
+        scoresPath = os.path.join(path, "ScoresOfPCs")
+        try:
+            os.mkdir(scoresPath)
+        except:
+            #Do Notihng
+            doNothing = 0
+        #store the scores of the principal components of the training data
+        fileName = "ScoresMissing" + str(sampleNames[y]) + "(" + str(numberSamples[y]) +").csv"
+        filePath = os.path.join(scoresPath,fileName)
+        dfscores.to_csv(filePath)
+
+    
+
+        #get the correct column and row to add a point to the LOOCV table
         y = -1
         for k in range(len(sampleNames)):
             if sampleNames[k] == data.axes[0][i]:
@@ -173,11 +311,26 @@ def PCAWithLOOCV():
                 break
         x = index
 
-        df.iat[x,y] += 1
+        df.iat[y,x] += 1
+        #[row,column]
+
+        #save the data
+        # Create folders to better organise the data being saved
+        eigenPath = os.path.join(path, "EigenVectors")
+    
+        #attempts to create a new directory with name specfied by the user
+        try:
+            os.mkdir(eigenPath)
+        except:
+            #Do Notihng
+            doNothing = 0
+    
+
 
         #store the eigenvectors for the pca
         fileName = "eigenVectorsMissing" + str(sampleNames[y]) + "(" + str(numberSamples[y]) +").csv"
-        filePath = os.path.join(path,fileName)
+        filePath = os.path.join(eigenPath,fileName)
+        
         try:
             os.remove(filePath)
         except:
@@ -196,7 +349,7 @@ def PCAWithLOOCV():
 
     #print the socres and save them to the same file as the eigenvectors
     print(df)
-    df.to_csv(os.path.join(path,("Scores.csv")))
+    df.to_csv(os.path.join(path,("LOOCVTable.csv")))
     return()
 
 

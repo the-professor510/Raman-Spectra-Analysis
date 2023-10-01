@@ -49,7 +49,6 @@ def PCAPredict():
     file = input("Enter here: ")
 
     #gets the file the user would like to fit to the trained PCA
-    file2 = r"C:\Users\edwar\OneDrive\Documents\University\Summer_2023_Internship\Data\RecycledBottles\DifferentWhiskies\PCA of unopened Bottles\OpenedBottlesNormalisedLimitedRamanShift.csv"
     print("\nPlese enter the full path to a file containing the data you would like to fit")
     print("An exmaple of a format is C:\\Users\\Documents\\FolderName\\FileContainingFittingData.csv")
     file2 = input("Enter here: ")
@@ -164,6 +163,8 @@ def PCAPredict():
     X2 = All_Samples2[X_colnames2].values
 
     distances = []
+    distancesForProb = []
+    minDistPred = []
     projectedPCA = []
 
     #fit the fitting data to the PCA, and find the minimum distance between 
@@ -186,9 +187,13 @@ def PCAPredict():
             if(tempDistance[j]<minDistance):
                 minDistance = tempDistance[j]
                 index = j
-            
+
+        distancesForProb.append(tempDistance.copy())    
+        minDistPred.append(sampleNames[index])
+
         tempDistance.append(sampleNames[index])
         distances.append(tempDistance)
+        
 
     
     print("Atempting to fit the classifier to the training set")
@@ -228,10 +233,10 @@ def PCAPredict():
         dfProb.to_csv(os.path.join(path,("PredictionsFromSVMSoftMaxProb.csv")))
 
 
-        print(probabilities)
+        #print(probabilities)
         dfSVC = pd.DataFrame(probabilities, columns = sampleNames, index = data2.axes[0])
         dfSVC['Prediction'] = (y_pred)
-        print(dfSVC)
+        #print(dfSVC)
         dfSVC.to_csv(os.path.join(path,("PredictionsFromSVM.csv")))
     except:
         print("Failed to use a SVM to categorise the data, will only use minimum distance")
@@ -241,6 +246,67 @@ def PCAPredict():
     dfPCA.to_csv(os.path.join(path,("PCAofFittedData.csv")))
 
     #stores the predictions from minimum distance to a dataframe
+    minDistanceProb = []
+    minDistanceProb2 = []
+    for i in distancesForProb:
+        
+        
+        tempProb2 = []
+        summation = 0
+        arccsch = []
+
+        tempProb = []
+        tempTanh = []
+        tempNormTanh = []
+        tanhSummation = 0
+
+        #calculated argmax values by first converting using arccsch
+        for j in i:
+            summation += j
+
+        average = summation/len(i)
+
+        for j in i:
+            arccsch.append(np.log((average/j)+np.sqrt((average/j)*(average/j)+1)))
+
+        summation = 0
+        for j in arccsch:
+            summation += np.exp(j)
+
+        for j in arccsch:
+            tempProb2.append(np.exp(j)/summation)
+
+        minDistanceProb2.append(tempProb2)
+
+
+        #calculated argmax values by first converting using tanh(1/x)
+        for j in i:
+            tempTanh.append(np.tanh(1/j))
+
+        maxValue = max(tempTanh)
+
+        for j in tempTanh:
+            tempNormTanh.append(j/maxValue)
+
+        for j in tempNormTanh:
+            tanhSummation += np.exp(j)
+
+        for j in tempNormTanh:
+            tempProb.append(np.exp(j)/tanhSummation)
+
+        minDistanceProb.append(tempProb)
+
+    #store softmax values from tanh
+    dfMin = pd.DataFrame(minDistanceProb, columns = sampleNames, index = data2.axes[0])
+    dfMin['Prediction'] = (minDistPred)
+    dfMin.to_csv(os.path.join(path,("PredictionsFromMinDistsoftMaxTanh.csv")))
+
+    #store softmax values from arccsch
+    dfMin2 = pd.DataFrame(minDistanceProb2, columns = sampleNames, index = data2.axes[0])
+    dfMin2['Prediction'] = (minDistPred)
+    dfMin2.to_csv(os.path.join(path,("PredictionsFromMinDistsoftMaxArccsch.csv")))
+
+
     sampleNames.append("Prediction")
     df = pd.DataFrame(distances, columns = sampleNames,index = data2.axes[0])
     
