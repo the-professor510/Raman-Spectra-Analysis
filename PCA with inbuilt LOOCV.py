@@ -261,25 +261,16 @@ def PCAWithLOOCV():
         fileName = "FittedPrincipalComponentsMissing" + str(sampleNames[y]) + "(" + str(numberSamples[y]) + ").csv"
         filePath = os.path.join(fittingPath,fileName)
         dfPCA.to_csv(filePath)
-
-
-        #find the probability from considering all axes
-        maxScore = scoreAllPC(average[0], std[0], TransformMissing[0])
-        scores = np.array(maxScore)
-        scoreColNames = ["All PC Score"]
-        index = 0
-        for j in range(1,len(average)):
-            scores = np.append(scores,scoreAllPC(average[j], std[j],TransformMissing[0]))
-            if maxScore < scores[j]:
-                maxScore = scores[j]
-                index = j
-        #if the maxscore is outside of the chosen certainty range then it will be set to be unknown
-        if maxScore < UncertaintyScore:
-            index = len(sampleNames)
         
+        scorePC = np.array(scoreOnePC(average[0][0], std[0][0], TransformMissing[0][0]))
+        for k in range(1,len(average)):
+            scorePC = np.append(scorePC, scoreOnePC(average[k][0], std[k][0], TransformMissing[0][0]))
+
+        scores = np.array(scorePC)
+        scoreColNames = [("PC" + str(0))]
 
         #find the probability scores when considering each axis individually
-        for j in range(numComponents):
+        for j in range(1,numComponents):
             #calculate the socres due to the jth principle component
             scorePC = np.array(scoreOnePC(average[0][j], std[0][j], TransformMissing[0][j]))
             for k in range(1,len(average)):
@@ -287,6 +278,21 @@ def PCAWithLOOCV():
 
             scores = np.column_stack((scores, scorePC))
             scoreColNames += [("PC" + str(j))]
+
+        minScores = np.min(scores, axis=1)
+        scores = np.column_stack((scores, minScores))
+        scoreColNames += [("Minimum Confidence score")]
+
+        index = 0
+        maxMinScore = minScores[0]
+        for j in range(1,len(minScores)):
+            if maxMinScore < minScores[j]:
+                maxMinScore = minScores[j]
+                index = j
+
+        if maxMinScore < UncertaintyScore:
+            index = len(sampleNames)
+
 
         dfscores = pd.DataFrame(scores, columns = scoreColNames, index = sampleNames)
         scoresPath = os.path.join(path, "ScoresOfPCs")
