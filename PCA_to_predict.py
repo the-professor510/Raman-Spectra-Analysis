@@ -6,11 +6,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-import csv
 import os
-from sklearn.svm import SVC
-from sklearn.utils.fixes import loguniform
-from sklearn.model_selection import RandomizedSearchCV
 
 #create a list of integers missing a single value between the start and end value
 def createList(missingValue, startValue, endValue):
@@ -30,6 +26,16 @@ def score(start, end, weightings):
         distance += (((start[i]-end[i])*weightings[i])**2)
 
     return np.sqrt(distance)
+
+#returns an evaluation score when considering just on principal component
+#is passed only one value for average, std, and fitted
+def scoreOnePC(average, std, fitted):
+    
+    score = ((fitted-average)**2)
+    score = (-1)*score/(2*(std**2))
+    score = np.exp(score)
+
+    return score
 
 
 def PCAPredict():
@@ -79,6 +85,11 @@ def PCAPredict():
             sampleNames.append(data.axes[0][i])
             numberSamples.append(0)
 
+    PredChoices = sampleNames.copy()
+    PredChoices.append("Unknown")
+
+    columnName = sampleNames.copy()
+    columnName.append("Prediction")
 
 
 
@@ -114,6 +125,8 @@ def PCAPredict():
     #get the number of components from the user
     numComponents= int(input("Enter the number of Prinicpal Components you would like to use: "))
 
+    #get the number of components from the user
+    UncertaintyScore = float(input("Enter the minimum score you would like to have to not be predicted as unknown: "))
 
     #create pca from taining data
     pca = PCA(n_components=numComponents).fit(X)
@@ -125,8 +138,9 @@ def PCAPredict():
     dfPCA = pd.DataFrame(X_Transformed,index = data.axes[0])
     dfPCA.to_csv(os.path.join(path,("PCAofTrainingData.csv")))
 
-    #find the average position of each smaple in the PC space
+    #find the average position and standard deviation of each smaple in the PC space
     average = []
+    std = []
     for j in range(len(sampleNames)):
         #find index of all scores relating to first name
         index = []
@@ -136,19 +150,36 @@ def PCAPredict():
                 index.append(x)
 
         total = []
-        subtraction = 0
 
 
         total = X_Transformed[index[0]]
+
+        #get list to find std of
+        listOfPC = X_Transformed[index[0]]
         
         for x in index[1:]:
+
+            listOfPC = np.column_stack((listOfPC, X_Transformed[x]))
+
+
             for y in range(numComponents):
                 total[y] += X_Transformed[x,y]
 
+        #calculate average
         for y in range(numComponents):
             total[y] = total[y]/len(index)
 
         average.append(total.copy())
+
+        #calculate std
+        std.append(np.std(listOfPC, axis =1))
+
+    #store average PC values and standard deviations
+    dfAverages = pd.DataFrame(average,index = sampleNames)
+    dfAverages.to_csv(os.path.join(path,("AvgOfPCs.csv")))
+
+    dfSTD = pd.DataFrame(std, index = sampleNames)
+    dfSTD.to_csv(os.path.join(path,("STDofPCs.csv")))
 
     #read in the second file of the data to be fit into a panda data frame
     try:
@@ -162,10 +193,10 @@ def PCAPredict():
     All_Samples2 = data2.iloc[0:len(data2),:]
     X2 = All_Samples2[X_colnames2].values
 
-    distances = []
-    distancesForProb = []
-    minDistPred = []
+
     projectedPCA = []
+    predictionsMinScore = []
+    predictionAvgScore = []
 
     #fit the fitting data to the PCA, and find the minimum distance between 
     # the average position of the training data and the fitted data
@@ -174,165 +205,87 @@ def PCAPredict():
         TransformNew = pca.transform(X2[i,:].reshape(1, -1))
         projectedPCA.append(TransformNew[0])
 
+        scorePC = np.array(scoreOnePC(average[0][0], std[0][0], TransformNew[0][0]))
+        for k in range(1,len(average)):
+            scorePC = np.append(scorePC, scoreOnePC(average[k][0], std[k][0], TransformNew[0][0]))
 
-        #find the minimum distance between the missing spectra and the average position of
-        # samples in the PC space and add it to the score dataframe
-        minDistance = score(average[0], TransformNew[0], weightings)
-        index = 0
         
-        tempDistance = [score(average[0], TransformNew[0], weightings)]
+        scores = np.array(scorePC)
+        scoreColNames = [("PC" + str(0))]
 
-        for j in range(1,len(average)):
-            tempDistance.append(score(average[j],TransformNew[0], weightings))
-            if(tempDistance[j]<minDistance):
-                minDistance = tempDistance[j]
+        #find the probability scores when considering each axis individually
+        for j in range(1,numComponents):
+            #calculate the socres due to the jth principle component
+            scorePC = np.array(scoreOnePC(average[0][j], std[0][j], TransformNew[0][j]))
+            for k in range(1,len(average)):
+                scorePC = np.append(scorePC, scoreOnePC(average[k][j], std[k][j], TransformNew[0][j]))
+
+            scores = np.column_stack((scores, scorePC))
+            scoreColNames += [("PC" + str(j))]
+
+        minScores = np.min(scores, axis=1)
+        averageScore = np.average(scores, axis=1)
+
+        scores = np.column_stack((scores, minScores))
+        scoreColNames += [("Minimum Confidence score")]
+        scores = np.column_stack((scores,averageScore))
+        scoreColNames += [("Average Confidence Score")]
+
+        index = 0
+        maxMinScore = minScores[0]
+        for j in range(1,len(minScores)):
+            if maxMinScore < minScores[j]:
+                maxMinScore = minScores[j]
                 index = j
 
-        distancesForProb.append(tempDistance.copy())    
-        minDistPred.append(sampleNames[index])
+        if maxMinScore < UncertaintyScore:
+            index = len(sampleNames)
 
-        tempDistance.append(sampleNames[index])
-        distances.append(tempDistance)
-        
+        #append the scores and predictions to a list of all the minscores and predictions
+        predictionsMinScore.append((np.concatenate((minScores,np.array([PredChoices[index]])))).tolist())
 
-    
-    print("Atempting to fit the classifier to the training set")
-    param_grid = {
-        "C": loguniform(1e3, 1e5),
-        "gamma": loguniform(1e-4, 1e-1),
-    }
-    clf = RandomizedSearchCV(
-        SVC(kernel="rbf", class_weight="balanced", decision_function_shape='ovr'), param_grid, n_iter=10
-    )
-    try:
-        clf = clf.fit(X_Transformed, data.axes[0])
-    
-        print("Best estimator found by grid search:")
-        print(clf.best_estimator_)
+        index = 0
+        maxAvgScore = averageScore[0]
+        for j in range(1,len(averageScore)):
+            if maxAvgScore < averageScore[j]:
+                maxAvgScore = averageScore[j]
+                index = j
 
-        y_pred = clf.predict(projectedPCA)
+        if maxAvgScore < UncertaintyScore:
+            index = len(sampleNames)
 
-        probabilities = clf.decision_function(projectedPCA)
-
-        prob = []
-        for i in probabilities:
-            tempProb = []
-            summation = 0
-            for j in i:
-                summation += np.exp(j)
-            
-            for j in i:
-                tempProb.append(np.exp(j)/summation)
-        
-            prob.append(tempProb)
-    
-        #print(prob)
-        print("Storing Predictions from SVM")
-        dfProb = pd.DataFrame(prob, columns = sampleNames, index = data2.axes[0])
-        dfProb['Prediction'] = (y_pred)
-        dfProb.to_csv(os.path.join(path,("PredictionsFromSVMSoftMaxProb.csv")))
+        predictionAvgScore.append((np.concatenate((averageScore,np.array([PredChoices[index]])))).tolist())
 
 
-        #print(probabilities)
-        dfSVC = pd.DataFrame(probabilities, columns = sampleNames, index = data2.axes[0])
-        dfSVC['Prediction'] = (y_pred)
-        #print(dfSVC)
-        dfSVC.to_csv(os.path.join(path,("PredictionsFromSVM.csv")))
-    except:
-        print("Failed to use a SVM to categorise the data, will only use minimum distance")
+        #store the scores for each pc in a different 
+        dfscores = pd.DataFrame(scores, columns = scoreColNames, index = sampleNames)
+        scoresPath = os.path.join(path, "ScoresOfPCs")
+        try:
+            os.mkdir(scoresPath)
+        except:
+            #Do Notihng
+            doNothing = 0
+        #store the scores of the principal components of the training data
+        fileName = "Scores for " + str(i+1) + "th spectra in fitting file.csv"
+        filePath = os.path.join(scoresPath,fileName)
+        dfscores.to_csv(filePath)
+
+
+    #store the predictions
+    df = pd.DataFrame(predictionsMinScore, columns = columnName, index = data2.axes[0])
+    df.to_csv(os.path.join(path,("PredictionsMaxMin.csv")))
+    print(df)
+
+    #store the predictions
+    df = pd.DataFrame(predictionAvgScore, columns = columnName, index = data2.axes[0])
+    df.to_csv(os.path.join(path,("PredictionsMaxAVG.csv")))
+    print(df)
 
     #stores the fitted data in a csv
     dfPCA = pd.DataFrame(projectedPCA,index = data2.axes[0])
     dfPCA.to_csv(os.path.join(path,("PCAofFittedData.csv")))
 
-    #stores the predictions from minimum distance to a dataframe
-    minDistanceProb = []
-    minDistanceProb2 = []
-    for i in distancesForProb:
-        
-        
-        tempProb2 = []
-        summation = 0
-        arccsch = []
 
-        tempProb = []
-        tempTanh = []
-        tempNormTanh = []
-        tanhSummation = 0
-
-        #calculated argmax values by first converting using arccsch
-        for j in i:
-            summation += j
-
-        average = summation/len(i)
-
-        for j in i:
-            arccsch.append(np.log((average/j)+np.sqrt((average/j)*(average/j)+1)))
-
-        summation = 0
-        for j in arccsch:
-            summation += np.exp(j)
-
-        for j in arccsch:
-            tempProb2.append(np.exp(j)/summation)
-
-        minDistanceProb2.append(tempProb2)
-
-
-        #calculated argmax values by first converting using tanh(1/x)
-        for j in i:
-            tempTanh.append(np.tanh(1/j))
-
-        maxValue = max(tempTanh)
-
-        for j in tempTanh:
-            tempNormTanh.append(j/maxValue)
-
-        for j in tempNormTanh:
-            tanhSummation += np.exp(j)
-
-        for j in tempNormTanh:
-            tempProb.append(np.exp(j)/tanhSummation)
-
-        minDistanceProb.append(tempProb)
-
-    #store softmax values from tanh
-    dfMin = pd.DataFrame(minDistanceProb, columns = sampleNames, index = data2.axes[0])
-    dfMin['Prediction'] = (minDistPred)
-    dfMin.to_csv(os.path.join(path,("PredictionsFromMinDistsoftMaxTanh.csv")))
-
-    #store softmax values from arccsch
-    dfMin2 = pd.DataFrame(minDistanceProb2, columns = sampleNames, index = data2.axes[0])
-    dfMin2['Prediction'] = (minDistPred)
-    dfMin2.to_csv(os.path.join(path,("PredictionsFromMinDistsoftMaxArccsch.csv")))
-
-
-    sampleNames.append("Prediction")
-    df = pd.DataFrame(distances, columns = sampleNames,index = data2.axes[0])
-    
-    #store the eigenvectors for the pca
-    print("Storing eigenVectors for PCA")
-    fileName = "eigenVectors.csv"
-    filePath = os.path.join(path,fileName)
-    try:
-        os.remove(filePath)
-    except:
-        #Do Notihng
-        doNothing = 0
-
-    #save the eigenvectors
-    with open(filePath, 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile, delimiter=',',quotechar='|', quoting=csv.QUOTE_NONE)
-        header = ["Raman Shift"] + list(X_colnames)
-        writer.writerow(header)
-        for counter in range(numComponents):
-            row = [("PC"+ str(counter+1))] + list(pca.components_[counter])
-            writer.writerow(row)
-
-
-    #print the socres and save them to the same file as the eigenvectors
-    print("Storing minimum distance predictions")
-    df.to_csv(os.path.join(path,("PredictionsFromMinDistance.csv")))
     return
 
 
