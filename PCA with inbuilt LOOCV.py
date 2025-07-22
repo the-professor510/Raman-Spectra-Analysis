@@ -119,7 +119,7 @@ def PCAWithLOOCV():
     plt.plot(np.cumsum((PCA(n_components=min(len(data), len(X_colnames))).fit(X)).explained_variance_ratio_))
     plt.xlabel("Number of components")
     plt.ylabel("Explained variance")
-    plt.savefig(path + "\PCA Explained variance.png")
+    plt.savefig(path + r"\PCA Explained variance.png")
 
     #get the number of components from the user
     numComponents= int(input("Enter the number of Prinicpal Components you would like to use: "))

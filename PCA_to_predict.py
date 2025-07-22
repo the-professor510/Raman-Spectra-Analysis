@@ -109,7 +109,7 @@ def PCAPredict():
     plt.plot(np.cumsum(weightings))
     plt.xlabel("Number of components")
     plt.ylabel("Explained variance")
-    plt.savefig(path + "\PCA Explained variance.png")
+    plt.savefig(path + r"\PCA Explained variance.png")
     
 
     #get the number of components from the user
