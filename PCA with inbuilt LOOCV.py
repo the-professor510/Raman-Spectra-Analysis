@@ -30,23 +30,7 @@ def distance(start, end):
 
     return np.sqrt(distance)
 
-#returns the score when considering all the Principal components
-#average, std, and fitted are an array of values of the same length
-def scoreAllPC(average, std, fitted):
-
-    score = 0
-
-    for i in range(len(fitted)):
-        score += ((fitted[i]-average[i])**2)
-
-    stdProduct = np.prod(std)
-
-    score = (-1)*score/(2*np.sqrt(stdProduct))
-    score = np.exp(score)
-
-    return score
-
-#returns an evaluation score when considering just on principal component
+#returns an evaluation score when considering just one principal component
 #is passed only one value for average, std, and fitted
 def scoreOnePC(average, std, fitted):
     

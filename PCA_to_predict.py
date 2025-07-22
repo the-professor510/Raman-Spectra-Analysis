@@ -17,17 +17,7 @@ def createList(missingValue, startValue, endValue):
         array.append(i)
     return array
 
-#calculate the distance between two vectors(!D arrays/lists) of the same dimension
-def score(start, end, weightings):
-    
-    distance = 0
-    
-    for i in range(len(start)):
-        distance += (((start[i]-end[i])*weightings[i])**2)
-
-    return np.sqrt(distance)
-
-#returns an evaluation score when considering just on principal component
+#returns an evaluation score when considering just one principal component
 #is passed only one value for average, std, and fitted
 def scoreOnePC(average, std, fitted):
     
@@ -160,7 +150,6 @@ def PCAPredict():
         for x in index[1:]:
 
             listOfPC = np.column_stack((listOfPC, X_Transformed[x]))
-
 
             for y in range(numComponents):
                 total[y] += X_Transformed[x,y]
