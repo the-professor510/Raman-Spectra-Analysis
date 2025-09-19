@@ -1,11 +1,13 @@
 # This python file will use scikitlearns libraries to analyse a set of data 
-# by PCA and then read in a separate file full another set of data that we want to fit to the PCA
+# by LDA and then read in a separate file full another set of data that we want to fit to the LDA
 
 print("Importing Libraries")
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
+
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+
 import os
 
 #create a list of integers missing a single value between the start and end value
@@ -28,7 +30,7 @@ def scoreOnePC(average, std, fitted):
     return score
 
 
-def PCAPredict():
+def LDAPredict():
     #Import a CSV with formating of 
     #         |ind1|ind2|ind3|ind4| ...
     #spectra1a| 6.0| 0.4| 0.5| 0.3| ...
@@ -39,12 +41,12 @@ def PCAPredict():
     #spectra2c| 6.2| 0.5| 0.3| 0.2| ...
     #spectra3a| 6.2| 0.5| 0.3| 0.2| ...
 
-    #gets the file the user would like to train the PCA on
-    print("\nPlese enter the full path to a file containing the data you would like to train the PCA on")
+    #gets the file the user would like to train the LDA on
+    print("\nPlese enter the full path to a file containing the data you would like to train the LDA on")
     print("An exmaple of a format is C:\\Users\\Documents\\FolderName\\FileContainingTrainingData.csv")
     file = input("Enter here: ")
 
-    #gets the file the user would like to fit to the trained PCA
+    #gets the file the user would like to fit to the trained LDA
     print("\nPlese enter the full path to a file containing the data you would like to fit")
     print("An exmaple of a format is C:\\Users\\Documents\\FolderName\\FileContainingFittingData.csv")
     file2 = input("Enter here: ")
@@ -56,11 +58,14 @@ def PCAPredict():
         print("Please ensure that you entered the file path for the training data properly")
         return
 
+    start = 125
+    stop = 600
+
     #Get the data from the data frame
     X_colnames = data.columns
+    X_colnames = X_colnames[start:stop]
     All_Samples = data.iloc[0:len(data),:]
     X = All_Samples[X_colnames].values
-
 
     #Get a list of all the names of the samples
     sampleNames = [data.axes[0][0]]
@@ -88,7 +93,7 @@ def PCAPredict():
     fileName = os.path.basename(file)
 
     print("\nPlese enter the name of the directory you would like to store the LOOCV in")
-    print("An exmaple of a is \"PCA\"")
+    print("An exmaple of a is \"LDA\"")
     directory = input("Enter here: ")
     
     # Path
@@ -105,29 +110,29 @@ def PCAPredict():
             return
 
     # store an image of the explained variance to allow the user to choose the right number of components
-    weightings=((PCA(n_components=min(len(data), len(X_colnames))).fit(X)).explained_variance_ratio_)
+    weightings=((LDA(n_components=min(len(sampleNames)-1, len(X_colnames))).fit(X, data.axes[0].values)).explained_variance_ratio_)
     plt.plot(np.cumsum(weightings))
     plt.xlabel("Number of components")
     plt.ylabel("Explained variance")
-    plt.savefig(path + r"\PCA Explained variance.png")
-    plt.clf()
+    plt.savefig(path + r"\LDA Explained variance.png")
+    plt.close()
     
 
     #get the number of components from the user
     numComponents= int(input("Enter the number of Prinicpal Components you would like to use: "))
 
     #get the number of components from the user
-    UncertaintyScore = float(input("Enter the minimum score you would like to have to not be predicted as unknown: "))
+    UncertaintyScore = float(input("Enter the minimum score you would like to have to not be predicted as unknown: "))   
+    
+    #create LDA from training data
+    lda = LDA(n_components=numComponents).fit(X, data.axes[0].values)
 
-    #create pca from taining data
-    pca = PCA(n_components=numComponents).fit(X)
+    #transform the training data into the LDA space
+    X_Transformed = lda.transform(X)
 
-    #transform the training data into the PCA space
-    X_Transformed = pca.transform(X)
-
-    #store PCA of the training data in a csv
-    dfPCA = pd.DataFrame(X_Transformed,index = data.axes[0])
-    dfPCA.to_csv(os.path.join(path,("PCAofTrainingData.csv")))
+    #store LDA of the training data in a csv
+    dfLDA = pd.DataFrame(X_Transformed,index = data.axes[0])
+    dfLDA.to_csv(os.path.join(path,("LDAofTrainingData.csv")))
 
     #find the average position and standard deviation of each smaple in the PC space
     average = []
@@ -180,20 +185,21 @@ def PCAPredict():
 
     #Get the data
     X_colnames2 = data2.columns
+    X_colnames2 = X_colnames2[start:stop]
     All_Samples2 = data2.iloc[0:len(data2),:]
     X2 = All_Samples2[X_colnames2].values
 
 
-    projectedPCA = []
+    projectedLDA = []
     predictionsMinScore = []
     predictionAvgScore = []
 
-    #fit the fitting data to the PCA, and find the minimum distance between 
+    #fit the fitting data to the LDA, and find the minimum distance between 
     # the average position of the training data and the fitted data
     for i in range(len(data2)):
         #fit the missing spectra to the PC space
-        TransformNew = pca.transform(X2[i,:].reshape(1, -1))
-        projectedPCA.append(TransformNew[0])
+        TransformNew = lda.transform(X2[i,:].reshape(1, -1))
+        projectedLDA.append(TransformNew[0])
 
         scorePC = np.array(scoreOnePC(average[0][0], std[0][0], TransformNew[0][0]))
         for k in range(1,len(average)):
@@ -272,11 +278,11 @@ def PCAPredict():
     print(df)
 
     #stores the fitted data in a csv
-    dfPCA = pd.DataFrame(projectedPCA,index = data2.axes[0])
-    dfPCA.to_csv(os.path.join(path,("PCAofFittedData.csv")))
+    dfLDA = pd.DataFrame(projectedLDA,index = data2.axes[0])
+    dfLDA.to_csv(os.path.join(path,("LDAofFittedData.csv")))
     
     #save the eigenvectors
-    dfEigen = pd.DataFrame(pca.components_.T, index = X_colnames)
+    dfEigen = pd.DataFrame(lda.scalings_, index = X_colnames)
     dfEigen.to_csv(os.path.join(path,("eigenVectors.csv")))
 
 
@@ -284,7 +290,7 @@ def PCAPredict():
 
 
 def Main():
-    print("\nThis program will perform PCA on a set of spectra and fit another set of spectra to the same space"
+    print("\nThis program will perform LDA on a set of spectra and fit another set of spectra to the same space"
          +"\nThe program will take two 'csv's please ensure that they are formatted as shown below")
     print("\n       |ind1|ind2|ind3|ind4| ..."
         + "\nsample1| 6.0| 0.4| 0.5| 0.3| ..."
@@ -296,17 +302,17 @@ def Main():
         + "\nsample4| 6.2| 2.6| 4.3| 3.1| ..."
         + "\nsample4| 6.3| 2.5| 4.5| 3.2| ...")
     
-    PCAPredict()
+    LDAPredict()
 
     while(True):
-        print("\nAre you finished performing PCAs?")
+        print("\nAre you finished performing LDAs?")
         stop = input("Please enter 'Y' or 'N': ")
 
         if(stop.upper() == "Y"):
             return
         #end if
 
-        PCAPredict()
+        LDAPredict()
     #end while
 #end Main
 
